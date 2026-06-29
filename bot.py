@@ -12,6 +12,7 @@ from datetime import datetime
 import re
 
 load_dotenv()
+print(f"TOKEN: {os.environ.get('TELEGRAM_TOKEN')}")
 
 # Configuración
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
