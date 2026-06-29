@@ -2,6 +2,8 @@ import logging
 import gspread
 import os
 import json
+import threading
+from flask import Flask
 from dotenv import load_dotenv
 from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
@@ -11,10 +13,17 @@ import re
 
 load_dotenv()
 
-# Configuración desde variables de entorno
+# Configuración
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 CREDENTIALS_FILE = r"C:\Users\Valentin\Desktop\bot_gastos\bot-gastos-500912-c63e2e205fc0.json"
+
+# Flask app
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return 'Bot funcionando!'
 
 # Categorías automáticas
 CATEGORIAS = {
@@ -33,7 +42,6 @@ def detectar_categoria(descripcion):
                 return categoria.upper()
     return "OTROS"
 
-
 def conectar_sheets():
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -47,7 +55,6 @@ def conectar_sheets():
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID).sheet1
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -138,7 +145,14 @@ async def registrar_gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error guardar: {type(e).__name__}: {e}")
         await update.message.reply_text("Error al guardar el gasto.")
 
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    flask_app.run(host='0.0.0.0', port=port)
+
 logging.basicConfig(level=logging.INFO)
+
+# Correr Flask en un hilo separado
+threading.Thread(target=run_flask, daemon=True).start()
 
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
