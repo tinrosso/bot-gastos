@@ -13,7 +13,9 @@ import re
 
 
 # Configuración
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_TOKEN")
+print(f"Todas las vars: {dict(os.environ)}")
+
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 CREDENTIALS_FILE = r"C:\Users\Valentin\Desktop\bot_gastos\bot-gastos-500912-c63e2e205fc0.json"
 
