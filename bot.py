@@ -11,8 +11,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from datetime import datetime
 import re
 
-load_dotenv(override=False)
-print(f"TOKEN: {os.environ.get('TELEGRAM_TOKEN')}")
 
 # Configuración
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
