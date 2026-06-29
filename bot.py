@@ -3,21 +3,20 @@ import gspread
 import os
 import json
 import threading
-from flask import Flask
-from dotenv import load_dotenv
+import requests
+from flask import Flask, request
 from oauth2client.service_account import ServiceAccountCredentials
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 from datetime import datetime
+from apscheduler.schedulers.background import BackgroundScheduler
 import re
 
-
 # Configuración
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_TOKEN")
-print(f"Todas las vars: {dict(os.environ)}")
-
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID")
 CREDENTIALS_FILE = r"C:\Users\Valentin\Desktop\bot_gastos\bot-gastos-500912-c63e2e205fc0.json"
+MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
 
 # Flask app
 flask_app = Flask(__name__)
@@ -25,6 +24,35 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home():
     return 'Bot funcionando!'
+
+@flask_app.route('/mp-webhook', methods=['POST'])
+def mp_webhook():
+    data = request.json
+
+    if data and data.get('type') == 'payment':
+        payment_id = data.get('data', {}).get('id')
+
+        if payment_id:
+            response = requests.get(
+                f"https://api.mercadopago.com/v1/payments/{payment_id}",
+                headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}
+            )
+            payment = response.json()
+
+            if payment.get('status') == 'approved':
+                monto = payment.get('transaction_amount')
+                descripcion = payment.get('description') or 'Pago MP'
+                fecha = datetime.now().strftime("%d/%m/%Y")
+                categoria = detectar_categoria(descripcion)
+
+                try:
+                    sheet = conectar_sheets()
+                    sheet.append_row([fecha, descripcion, monto, categoria])
+                    print(f"Pago MP guardado: {descripcion} ${monto}")
+                except Exception as e:
+                    print(f"Error guardando pago MP: {e}")
+
+    return 'OK', 200
 
 # Categorías automáticas
 CATEGORIAS = {
@@ -56,6 +84,34 @@ def conectar_sheets():
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID).sheet1
+
+def polling_mp():
+    print("Corriendo polling de MP...")
+    try:
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        response = requests.get(
+            f"https://api.mercadopago.com/v1/payments/search?range=date_created&begin_date={hoy}T00:00:00Z&end_date={hoy}T23:59:59Z&type=transfer",
+            headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}
+        )
+        pagos = response.json().get('results', [])
+
+        sheet = conectar_sheets()
+        registros = sheet.get_all_records()
+        descripciones_hoy = [r["DESCRIPCION"] for r in registros if r["FECHA"] == datetime.now().strftime("%d/%m/%Y")]
+
+        for pago in pagos:
+            if pago.get('status') == 'approved':
+                monto = pago.get('transaction_amount')
+                descripcion = pago.get('description') or 'Transferencia MP'
+                fecha = datetime.now().strftime("%d/%m/%Y")
+                categoria = "TRANSFERENCIA"
+
+                if descripcion not in descripciones_hoy:
+                    sheet.append_row([fecha, descripcion, monto, categoria])
+                    print(f"Transferencia guardada: {descripcion} ${monto}")
+
+    except Exception as e:
+        print(f"Error polling MP: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -152,7 +208,11 @@ def run_flask():
 
 logging.basicConfig(level=logging.INFO)
 
-# Correr Flask en un hilo separado
+# Scheduler para polling a las 23:59
+scheduler = BackgroundScheduler()
+scheduler.add_job(polling_mp, 'cron', hour=23, minute=59)
+scheduler.start()
+
 threading.Thread(target=run_flask, daemon=True).start()
 
 app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
