@@ -21,9 +21,11 @@ MP_ACCESS_TOKEN = os.environ.get("MP_ACCESS_TOKEN")
 # Flask app
 flask_app = Flask(__name__)
 
+
 @flask_app.route('/')
 def home():
     return 'Bot funcionando!'
+
 
 @flask_app.route('/mp-webhook', methods=['POST'])
 def mp_webhook():
@@ -54,6 +56,7 @@ def mp_webhook():
 
     return 'OK', 200
 
+
 # Categorías automáticas
 CATEGORIAS = {
     "comida": ["almuerzo", "cena", "desayuno", "café", "restaurant", "pizza", "empanada", "super", "supermercado"],
@@ -63,6 +66,7 @@ CATEGORIAS = {
     "servicios": ["luz", "agua", "gas", "internet", "celular"],
 }
 
+
 def detectar_categoria(descripcion):
     descripcion_lower = descripcion.lower()
     for categoria, palabras in CATEGORIAS.items():
@@ -70,6 +74,7 @@ def detectar_categoria(descripcion):
             if palabra in descripcion_lower:
                 return categoria.upper()
     return "OTROS"
+
 
 def conectar_sheets():
     scope = [
@@ -85,21 +90,28 @@ def conectar_sheets():
     client = gspread.authorize(creds)
     return client.open_by_key(SPREADSHEET_ID).sheet1
 
+
 def polling_mp():
     print("Corriendo polling de MP...")
     try:
         hoy = datetime.now().strftime("%Y-%m-%d")
         response = requests.get(
-            f"https://api.mercadopago.com/v1/payments/search?range=date_created&begin_date={hoy}T00:00:00Z&end_date={hoy}T23:59:59Z&type=transfer",
+            f"https://api.mercadopago.com/v1/payments/search?range=date_created&begin_date={hoy}T00:00:00Z&end_date={hoy}T23:59:59Z",
             headers={"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}
         )
+        print(f"Status: {response.status_code}")
+        print(f"Respuesta MP: {response.json()}")
+
         pagos = response.json().get('results', [])
+        print(f"Cantidad de pagos encontrados: {len(pagos)}")
 
         sheet = conectar_sheets()
         registros = sheet.get_all_records()
         descripciones_hoy = [r["DESCRIPCION"] for r in registros if r["FECHA"] == datetime.now().strftime("%d/%m/%Y")]
 
         for pago in pagos:
+            print(f"Pago: status={pago.get('status')}, tipo={pago.get('operation_type')}, monto={pago.get('transaction_amount')}")
+
             if pago.get('status') == 'approved':
                 monto = pago.get('transaction_amount')
                 descripcion = pago.get('description') or 'Transferencia MP'
@@ -113,6 +125,7 @@ def polling_mp():
     except Exception as e:
         print(f"Error polling MP: {e}")
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Hola! Soy tu bot de gastos 💰\n\n"
@@ -124,6 +137,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/total - Ver total gastado",
         parse_mode="Markdown"
     )
+
 
 async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -154,6 +168,7 @@ async def resumen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error resumen: {type(e).__name__}: {e}")
         await update.message.reply_text("Error al obtener el resumen.")
 
+
 async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         sheet = conectar_sheets()
@@ -167,6 +182,7 @@ async def total(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error total: {type(e).__name__}: {e}")
         await update.message.reply_text("Error al obtener el total.")
+
 
 async def registrar_gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text.strip()
@@ -202,15 +218,17 @@ async def registrar_gasto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error guardar: {type(e).__name__}: {e}")
         await update.message.reply_text("Error al guardar el gasto.")
 
+
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
     flask_app.run(host='0.0.0.0', port=port)
+
 
 logging.basicConfig(level=logging.INFO)
 
 # Scheduler para polling a las 23:59
 scheduler = BackgroundScheduler()
-scheduler.add_job(polling_mp, 'cron', hour=23, minute=59)
+scheduler.add_job(polling_mp, 'cron', minute=59)
 scheduler.start()
 
 threading.Thread(target=run_flask, daemon=True).start()
